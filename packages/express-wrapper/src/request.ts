@@ -131,8 +131,10 @@ export const handleRequest = (
         const response = await serviceFn(handlerParams);
         responseEncoder(httpRoute, response)(req, res, next);
       } catch (err) {
-        console.warn('Error in route handler:', err);
-        res.status(500).end();
+        if (!res.statusCode) {
+          res.status(500);
+        }
+        res.end();
         next();
         return;
       }

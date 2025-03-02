@@ -114,7 +114,7 @@ export type AddUncheckedRouteHandler<Spec extends ApiSpec, Method extends Method
  */
 export type WrappedRouter<Spec extends ApiSpec> = Omit<
   express.Router,
-  'get' | 'post' | 'put' | 'delete' | 'use'
+  'get' | 'post' | 'put' | 'delete' | 'use' | 'patch'
 > &
   express.RequestHandler & {
     use: (middleware: UncheckedRequestHandler<ApiSpec, string, HttpMethod>) => void;
@@ -122,8 +122,85 @@ export type WrappedRouter<Spec extends ApiSpec> = Omit<
     post: AddRouteHandler<Spec, 'post'>;
     put: AddRouteHandler<Spec, 'put'>;
     delete: AddRouteHandler<Spec, 'delete'>;
+    patch: AddRouteHandler<Spec, 'patch'>;
+    /**
+     * This function will create a GET route without validating the request, or encoding the response body.
+     * However, it will still try decode the request and set `req.decoded: Either<DecodedRequest, Error>`. To see the
+     * result of this operation, you can check `req.decoded` in your route handler like this:
+     *
+     * ```typescript
+     * import * as E from 'fp-ts/Either';
+     *
+     * if (E.isLeft(req.decoded)) {
+     *    // input validation failed
+     * } else {
+     *    // input validation succeeded
+     * }
+     * ```
+     */
     getUnchecked: AddUncheckedRouteHandler<Spec, 'get'>;
+    /**
+     * This function will create a POST route without validating the request body, or encoding the response body.
+     * However, it will still try decode the request and set `req.decoded: Either<DecodedRequest, Error>`. To see the
+     * result of this operation, you can check `req.decoded` in your route handler like this:
+     *
+     * ```typescript
+     * import * as E from 'fp-ts/Either';
+     *
+     * if (E.isLeft(req.decoded)) {
+     *    // input validation failed
+     * } else {
+     *    // input validation succeeded
+     * }
+     * ```
+     */
     postUnchecked: AddUncheckedRouteHandler<Spec, 'post'>;
+    /**
+     * This function will create a PUT route without validating the request, or encoding the response body.
+     * However, it will still try decode the request and set `req.decoded: Either<DecodedRequest, Error>`. To see the
+     * result of this operation, you can check `req.decoded` in your route handler like this:
+     *
+     * ```typescript
+     * import * as E from 'fp-ts/Either';
+     *
+     * if (E.isLeft(req.decoded)) {
+     *    // input validation failed
+     * } else {
+     *    // input validation succeeded
+     * }
+     * ```
+     */
     putUnchecked: AddUncheckedRouteHandler<Spec, 'put'>;
+    /**
+     * This function will create a DELETE route without validating the request, or encoding the response body.
+     * However, it will still try decode the request and set `req.decoded: Either<DecodedRequest, Error>`. To see the
+     * result of this operation, you can check `req.decoded` in your route handler like this:
+     *
+     * ```typescript
+     * import * as E from 'fp-ts/Either';
+     *
+     * if (E.isLeft(req.decoded)) {
+     *    // input validation failed
+     * } else {
+     *    // input validation succeeded
+     * }
+     * ```
+     */
     deleteUnchecked: AddUncheckedRouteHandler<Spec, 'delete'>;
+    /**
+     * This function will create a PATCH route without validating the request, or encoding the response body.
+     * However, it will still try decode the request and set `req.decoded: Either<DecodedRequest, Error>`. To see the
+     * result of this operation, you can check `req.decoded` in your route handler like this:
+     *
+     * ```typescript
+     * import * as E from 'fp-ts/Either';
+     *
+     * if (E.isLeft(req.decoded)) {
+     *    // input validation failed
+     * } else {
+     *    // input validation succeeded
+     * }
+     * ```
+     */
+    patchUnchecked: AddUncheckedRouteHandler<Spec, 'patch'>;
   };

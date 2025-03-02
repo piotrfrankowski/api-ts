@@ -14,29 +14,21 @@
   },
   "homepage": "https://github.com/BitGo/api-ts#readme",
   "workspaces": [
-    "packages/**"
+    "packages/*"
   ],
   "packageManager": "npm@8.5.0",
   "scripts": {
-    "build": "turbo run build",
-    "clean": "turbo run clean",
-    "predistclean": "turbo run clean",
+    "build": "npm run --workspaces build",
+    "test": "npm run --workspaces --if-present test",
     "distclean": "rm -rf node_modules packages/*/node_modules",
-    "format": "turbo run format",
-    "format:fix": "turbo run format:fix",
-    "lint-staged": "lint-staged",
-    "test": "turbo run test"
+    "postinstall": "patch-package"
   },
-  "pre-commit": "lint-staged",
   "devDependencies": {
-    "@semantic-release/npm": "9.0.1",
-    "@semrel-extra/npm": "1.2.0",
-    "@types/node": "18.11.7",
-    "lint-staged": "13.1.0",
-    "multi-semantic-release": "3.0.1",
-    "pre-commit": "1.2.2",
-    "prettier": "2.8.0",
-    "turbo": "1.6.3",
+    "@semantic-release-extras/github-comment-specific": "1.0.7",
+    "@semantic-release/npm": "12.0.1",
+    "@types/node": "22.5.0",
+    "multi-semantic-release": "3.0.2",
+    "patch-package": "8.0.0",
     "typescript": "4.6.4"
   },
   "engines": {

@@ -1,9 +1,10 @@
 import * as h from '@api-ts/io-ts-http';
 import * as E from 'fp-ts/Either';
+import { pipe } from 'fp-ts/pipeable';
 import * as t from 'io-ts';
 import * as PathReporter from 'io-ts/lib/PathReporter';
+import { posix } from 'node:path';
 import { URL } from 'whatwg-url';
-import { pipe } from 'fp-ts/function';
 
 type SuccessfulResponses<Route extends h.HttpRoute> = {
   [R in keyof Route['response']]: {
@@ -50,20 +51,20 @@ type SuperagentLike<Req> = {
   [K in h.Method]: (url: string) => Req;
 };
 
-type Response = {
+export type Response = {
   body: unknown;
   text: unknown;
   status: number;
 };
 
-interface SuperagentRequest<Res extends Response> extends Promise<Res> {
+export interface SuperagentRequest<Res extends Response> extends Promise<Res> {
   ok(callback: (response: Res) => boolean): this;
   query(params: Record<string, string | string[]>): this;
   set(name: string, value: string): this;
   send(body: string): this;
 }
 
-const substitutePathParams = (path: string, params: Record<string, string>) => {
+export const substitutePathParams = (path: string, params: Record<string, string>) => {
   for (const key in params) {
     if (params.hasOwnProperty(key)) {
       path = path.replace(`{${key}}`, params[key]);
@@ -86,7 +87,8 @@ export const superagentRequestFactory =
       throw Error(`Unsupported http method "${route.method}"`);
     }
     const url = new URL(base);
-    url.pathname = substitutePathParams(route.path, params);
+    const substitutedPath = substitutePathParams(route.path, params);
+    url.pathname = posix.join(url.pathname, substitutedPath);
     return superagent[method](url.toString());
   };
 

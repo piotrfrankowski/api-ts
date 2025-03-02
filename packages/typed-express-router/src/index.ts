@@ -5,7 +5,7 @@
 import { ApiSpec, HttpRoute, KeyToHttpStatus } from '@api-ts/io-ts-http';
 import express from 'express';
 import * as E from 'fp-ts/Either';
-import { pipe } from 'fp-ts/function';
+import { pipe } from 'fp-ts/pipeable';
 import { defaultOnDecodeError, defaultOnEncodeError } from './errors';
 import { apiTsPathToExpress } from './path';
 import {
@@ -87,12 +87,20 @@ export function wrapRouter<Spec extends ApiSpec>(
         throw Error(`Method "${method}" at "${apiName}" must not be "undefined"'`);
       }
       const wrapReqAndRes: UncheckedRequestHandler = (req, res, next) => {
-        const decoded = route.request.decode(req);
+        // Intentionally passing explicit arguments here instead of decoding
+        // req by itself because of issues that arise while using Node 16
+        // See https://github.com/BitGo/api-ts/pull/394 for more information.
+        const decoded = route.request.decode({
+          body: req.body,
+          headers: req.headers,
+          params: req.params,
+          query: req.query,
+        });
         req.decoded = decoded;
         req.apiName = apiName;
         req.httpRoute = route;
         res.sendEncoded = (
-          status: keyof typeof route['response'],
+          status: keyof (typeof route)['response'],
           payload: unknown,
         ) => {
           try {
@@ -183,10 +191,12 @@ export function wrapRouter<Spec extends ApiSpec>(
       post: makeAddRoute('post'),
       put: makeAddRoute('put'),
       delete: makeAddRoute('delete'),
+      patch: makeAddRoute('patch'),
       getUnchecked: makeAddUncheckedRoute('get'),
       postUnchecked: makeAddUncheckedRoute('post'),
       putUnchecked: makeAddUncheckedRoute('put'),
       deleteUnchecked: makeAddUncheckedRoute('delete'),
+      patchUnchecked: makeAddUncheckedRoute('patch'),
       use: (middleware: UncheckedRequestHandler) => {
         routerMiddleware.push(middleware);
       },

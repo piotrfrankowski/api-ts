@@ -1,4 +1,6 @@
-import { assert } from 'chai';
+import { describe, it } from 'node:test';
+import { strict as assert } from 'node:assert';
+
 import * as t from 'io-ts';
 
 import * as c from '../src/combinators';
@@ -102,6 +104,14 @@ describe('optionalized', () => {
     assertDecodes(optionalCodec, { a: undefined, b: 'foo' }, expected);
   });
 
+  it('returns `true` for `is` when there actually is an explicit undefined', () => {
+    const optionalCodec = c.optionalized({
+      a: c.optional(t.number),
+      b: t.string,
+    });
+    assert(optionalCodec.is({ a: undefined, b: 'foo' }));
+  });
+
   it('strips explicit undefined properties when encoding', () => {
     const optionalCodec = c.optionalized({
       a: c.optional(t.number),
@@ -109,6 +119,24 @@ describe('optionalized', () => {
     });
     const expected = { b: 'foo' };
     assertEncodes(optionalCodec, { a: undefined, b: 'foo' }, expected);
+  });
+
+  it('successfully encodes when in a union and passed explicitly undefined properties', () => {
+    const unionCodec = t.union([
+      c.optionalized({
+        a: c.optional(t.number),
+        key: t.literal('foo'),
+      }),
+      t.undefined,
+    ]);
+    const expected = { key: 'foo' };
+    assertEncodes(unionCodec, { a: undefined, key: 'foo' }, expected);
+  });
+
+  it('returns undefined when encoding undefined', () => {
+    const optionalCodec = c.optionalized({});
+    const expected = undefined;
+    assertEncodes(optionalCodec, undefined, expected);
   });
 
   it('decodes explicit null properties', () => {

@@ -1,9 +1,9 @@
 # api-ts
 
-[![Build Status]](https://github.com/BitGo/api-ts/actions/workflows/release.yml)
+[![Build Status]](https://github.com/BitGo/api-ts/actions/workflows/release.yaml)
 
 [build status]:
-  https://github.com/BitGo/api-ts/actions/workflows/release.yml/badge.svg?event=push
+  https://github.com/BitGo/api-ts/actions/workflows/release.yaml/badge.svg?event=push
 
 A collection of packages for defining and using type-checked APIs with TypeScript.
 
@@ -22,6 +22,11 @@ type-checked and runtime-validated HTTP calls in a standardized manner.
 [io-ts-http]: packages/io-ts-http/README.md
 [client]: packages/superagent-wrapper/README.md
 [server]: packages/express-wrapper/README.md
+
+## io-ts Compatibility
+
+**api-ts** is built and tested against the stable channel of io-ts (v2.1). **api-ts** is
+not currently compatible with the experimental channel of io-ts (v2.2).
 
 ## Developing
 

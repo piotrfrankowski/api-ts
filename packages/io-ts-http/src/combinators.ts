@@ -1,4 +1,4 @@
-import { pipe } from 'fp-ts/function';
+import { pipe } from 'fp-ts/pipeable';
 import * as E from 'fp-ts/Either';
 import * as R from 'fp-ts/Record';
 import * as t from 'io-ts';
@@ -26,8 +26,7 @@ const partialWithoutUndefined = <P extends t.Props>(
   const partialCodec = t.partial(props, name);
   return new t.PartialType(
     partialCodec.name,
-    (i): i is DefinedValues<t.TypeOfPartialProps<P>> =>
-      partialCodec.is(i) && !Object.values(i).includes(void 0),
+    (i): i is DefinedValues<t.TypeOfPartialProps<P>> => partialCodec.is(i),
     (i, ctx) => {
       return pipe(
         partialCodec.validate(i, ctx),
@@ -43,6 +42,10 @@ const partialWithoutUndefined = <P extends t.Props>(
     },
     (a) => {
       const result = partialCodec.encode(a);
+      if (result === undefined) {
+        // `t.partial` will return this when passed `undefined` even though it is not in the type
+        return result;
+      }
       for (const key of Object.keys(result)) {
         if (result[key] === void 0) {
           delete result[key];
@@ -98,12 +101,12 @@ export const flattened = <Props extends NestedProps>(
     const innerProps = props[key];
     flatProps = { ...flatProps, ...innerProps };
   }
-  const flatCodec = t.exact(optionalized(flatProps));
+  const flatCodec = t.exact(optionalized(flatProps), name);
 
   const nestedProps = R.map((innerProps: t.Props) => t.exact(optionalized(innerProps)))(
     props,
   );
-  const nestedCodec = t.strict(nestedProps);
+  const nestedCodec = t.strict(nestedProps, name);
 
   return new t.Type(
     name,

@@ -1,174 +1,224 @@
-import { pipe } from 'fp-ts/function';
-import * as A from 'fp-ts/Alt';
-import * as RA from 'fp-ts/ReadonlyArray';
+import * as fs from 'fs';
+import * as p from 'node:path';
+import { promisify } from 'util';
 import * as E from 'fp-ts/Either';
-import * as RE from 'fp-ts/ReaderEither';
-import { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
-import {
-  DiagnosticCategory,
-  Node,
-  Project,
-  Symbol,
-  VariableDeclaration,
-} from 'ts-morph';
+import resolve from 'resolve';
 
-import { apiSpecVersion, schemaForApiSpec } from './route';
-import { Config } from './config';
+import { KNOWN_IMPORTS, type KnownCodec } from './knownImports';
+import { parseSource, type SourceFile } from './sourceFile';
+import { errorLeft, logInfo } from './error';
 
-type Env = {
-  memo: { [K: string]: OpenAPIV3_1.SchemaObject | OpenAPIV3_1.ReferenceObject };
-  config: Config;
-};
+const readFile = promisify(fs.readFile);
 
-const project = ({
-  config: { tsConfig, virtualFiles },
-}: Env): E.Either<string, Project> => {
-  const project = new Project({
-    tsConfigFilePath: tsConfig,
-  });
-  for (const [filename, source] of Object.entries(virtualFiles)) {
-    project.createSourceFile(filename, source);
+export class Project {
+  private readonly knownImports: Record<string, Record<string, KnownCodec>>;
+
+  private processedFiles: Record<string, SourceFile>;
+  private pendingFiles: Set<string>;
+  private types: Record<string, string>;
+  private visitedPackages: Set<string>;
+
+  constructor(files: Record<string, SourceFile> = {}, knownImports = KNOWN_IMPORTS) {
+    this.processedFiles = files;
+    this.pendingFiles = new Set();
+    this.knownImports = knownImports;
+    this.types = {};
+    this.visitedPackages = new Set();
   }
 
-  const errors = project
-    .getPreEmitDiagnostics()
-    .filter((diag) => diag.getCategory() === DiagnosticCategory.Error);
+  add(path: string, sourceFile: SourceFile): void {
+    this.processedFiles[path] = sourceFile;
+    this.pendingFiles.delete(path);
 
-  if (errors.length > 0) {
-    const messages = errors.map((err) => {
-      const message = err.getMessageText();
-      if (typeof message === 'string') {
-        return message;
-      } else {
-        return message.getMessageText();
+    // Update types mapping
+    for (const exp of sourceFile.symbols.exports) {
+      this.types[exp.exportedName] = path;
+    }
+  }
+
+  get(path: string): SourceFile | undefined {
+    return this.processedFiles[path];
+  }
+
+  has(path: string): boolean {
+    return this.processedFiles.hasOwnProperty(path);
+  }
+
+  async parseEntryPoint(entryPoint: string): Promise<E.Either<string, Project>> {
+    const queue: string[] = [entryPoint];
+    let path: string | undefined;
+
+    while (((path = queue.pop()), path !== undefined)) {
+      if (!['.ts', '.js'].includes(p.extname(path))) {
+        continue;
       }
-    });
-    return E.left(`Errors found in project:\n${messages.join('\n')}`);
+
+      try {
+        const src = await this.readFile(path);
+        const sourceFile = await parseSource(path, src);
+
+        if (!sourceFile) {
+          console.error(`Error parsing source file: ${path}`);
+          continue;
+        }
+
+        // map types to their file path
+        for (const exp of sourceFile.symbols.exports) {
+          this.types[exp.exportedName] = path;
+        }
+
+        this.add(path, sourceFile);
+
+        // Process imports
+        const baseDir = p.dirname(path);
+        for (const sym of Object.values(sourceFile.symbols.imports)) {
+          if (!sym.from.startsWith('.')) {
+            if (!this.visitedPackages.has(sym.from)) {
+              const codecs = await this.getCustomCodecs(baseDir, sym.from);
+              if (E.isLeft(codecs)) {
+                return codecs;
+              }
+
+              if (Object.keys(codecs.right).length > 0) {
+                this.knownImports[sym.from] = {
+                  ...codecs.right,
+                  ...this.knownImports[sym.from],
+                };
+                logInfo(`Loaded custom codecs for ${sym.from}`);
+              }
+
+              this.visitedPackages.add(sym.from);
+            }
+
+            const entryPoint = this.resolveEntryPoint(baseDir, sym.from);
+            if (E.isRight(entryPoint) && !this.has(entryPoint.right)) {
+              queue.push(entryPoint.right);
+            }
+          } else {
+            const absImportPathE = this.resolve(baseDir, sym.from);
+            if (E.isRight(absImportPathE) && !this.has(absImportPathE.right)) {
+              queue.push(absImportPathE.right);
+            }
+          }
+        }
+
+        // Process star exports
+        for (const starExport of sourceFile.symbols.exportStarFiles) {
+          const absImportPathE = this.resolve(baseDir, starExport);
+          if (E.isRight(absImportPathE) && !this.has(absImportPathE.right)) {
+            queue.push(absImportPathE.right);
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error) {
+          return E.left(err.message);
+        }
+        return E.left('Unknown error occurred while processing files');
+      }
+    }
+
+    return E.right(this);
   }
 
-  return E.right(project);
-};
+  async readFile(filename: string): Promise<string> {
+    return await readFile(filename, 'utf8');
+  }
 
-const sourceFile = (filename: string) => (project: Project) =>
-  E.fromNullable(`${filename} not in project`)(project.getSourceFile(filename));
+  resolveEntryPoint(basedir: string, library: string): E.Either<string, string> {
+    try {
+      const packageJson = resolve.sync(`${library}/package.json`, {
+        basedir,
+        extensions: ['.json'],
+      });
+      const packageInfo = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
 
-const variableDeclarationOfSymbol = (sym: Symbol) => {
-  const declaration = sym.getDeclarations().find((d) => Node.isVariableDeclaration(d));
-  // Asserting type because control-flow analysis is not narrowing it properly through find()
-  return E.fromNullable(`${sym.getName()} has no variable declarations`)(
-    declaration as VariableDeclaration,
-  );
-};
+      let typesEntryPoint = '';
 
-type PathSpec = { [Path: string]: { [Method: string]: OpenAPIV3_1.OperationObject } };
+      if (packageInfo['source']) {
+        typesEntryPoint = packageInfo['source'];
+      } else if (packageInfo['typings']) {
+        typesEntryPoint = packageInfo['typings'];
+      } else if (packageInfo['types']) {
+        typesEntryPoint = packageInfo['types'];
+      }
 
-/**
- * There seems to be a bug in the openapi-types declaration for 3.1 parameters where their
- * schemas use the 3.0 schema object type that disallows nulls. I've checked with a schema
- * validator and it appears to accept null parameter (though why would you need this?), so
- * to work around the type definition bug, the parameter definitions can just be asserted.
- */
-type ParameterList = (OpenAPIV3.ReferenceObject | OpenAPIV3.ParameterObject)[];
+      if (!typesEntryPoint) {
+        return errorLeft(`Could not find types entry point for ${library}`);
+      }
 
-const routesForSymbol =
-  (sym: Symbol): RE.ReaderEither<Env, string, PathSpec> =>
-  ({ config: { includeInternal }, memo }: Env) =>
-    pipe(
-      variableDeclarationOfSymbol(sym),
-      E.chain(schemaForApiSpec(memo)),
-      E.map(
-        RA.reduce(
-          {},
-          (
-            paths: PathSpec,
-            {
-              path,
-              method,
-              query,
-              params,
-              body,
-              responses,
-              summary,
-              description,
-              isPrivate,
-            },
-          ) =>
-            isPrivate && !includeInternal
-              ? paths
-              : {
-                  ...paths,
-                  [path]: {
-                    ...paths[path],
-                    [method]: {
-                      summary,
-                      ...(description !== undefined ? { description } : {}),
-                      ...(isPrivate ? { 'x-internal': true } : {}),
-                      parameters: [
-                        ...(query as ParameterList),
-                        ...(params as ParameterList),
-                      ],
-                      responses: responses.reduce<OpenAPIV3_1.ResponsesObject>(
-                        (acc, { code, schema: { schema } }) => ({
-                          ...acc,
-                          [code]: {
-                            description: '', // DISCUSS: This field actually is required, is there a better default for this?
-                            content: {
-                              'application/json': { schema },
-                            },
-                          },
-                        }),
-                        {},
-                      ),
-                      ...(body !== undefined
-                        ? {
-                            requestBody: {
-                              content: {
-                                'application/json': {
-                                  schema: body.schema,
-                                },
-                              },
-                              required: body.required,
-                            },
-                          }
-                        : {}),
-                    },
-                  },
-                },
-        ),
-      ),
-    );
+      const entryPoint = resolve.sync(`${library}/${typesEntryPoint}`, {
+        basedir,
+        extensions: ['.ts', '.js'],
+      });
+      return E.right(entryPoint);
+    } catch (err) {
+      return errorLeft(`Could not resolve entry point for ${library}: ${err}`);
+    }
+  }
 
-export function componentsForProject(
-  config: Config,
-): E.Either<string, OpenAPIV3_1.Document> {
-  const memo = {};
+  resolve(basedir: string, path: string): E.Either<string, string> {
+    try {
+      const result = resolve.sync(path, {
+        basedir,
+        extensions: ['.ts', '.js'],
+      });
+      return E.right(result);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message) {
+        return errorLeft(e.message);
+      }
 
-  return pipe(
-    project,
-    RE.chainEitherK(sourceFile(config.index)),
-    RE.chain((src) =>
-      pipe(
-        src.getExportSymbols(),
-        RA.map((sym) =>
-          pipe(
-            RE.Do,
-            RE.bind('paths', () => routesForSymbol(sym)),
-            RE.bind('version', () => RE.right(apiSpecVersion(sym))),
-          ),
-        ),
-        A.altAll(RE.Alt)(RE.left('no valid route symbols exported')),
-      ),
-    ),
-    RE.map(({ paths, version }) => ({
-      openapi: '3.1.0',
-      info: {
-        title: config.name,
-        version: version,
-      },
-      paths,
-      components: {
-        schemas: memo,
-      },
-    })),
-  )({ config, memo });
+      return errorLeft(JSON.stringify(e));
+    }
+  }
+
+  resolveKnownImport(path: string, name: string): KnownCodec | undefined {
+    const baseKey = path.startsWith('.') ? '.' : path;
+    return this.knownImports[baseKey]?.[name];
+  }
+
+  getTypes() {
+    return this.types;
+  }
+
+  private async getCustomCodecs(
+    basedir: string,
+    packageName: string,
+  ): Promise<E.Either<string, Record<string, KnownCodec>>> {
+    let packageJsonPath = '';
+
+    try {
+      packageJsonPath = resolve.sync(`${packageName}/package.json`, {
+        basedir,
+        extensions: ['.json'],
+      });
+    } catch (e) {
+      // This should not lead to the failure of the entire project, so return an empty record
+      return E.right({});
+    }
+
+    const packageInfo = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+
+    if (packageInfo['customCodecFile']) {
+      // The package defines their own custom codecs
+      const customCodecPath = resolve.sync(
+        `${packageName}/${packageInfo['customCodecFile']}`,
+        {
+          basedir,
+          extensions: ['.ts', '.js'],
+        },
+      );
+
+      const module = await import(customCodecPath);
+      if (module.default === undefined) {
+        // Package does not have a default export so we can't use it. Format of the custom codec file is incorrect
+        return errorLeft(`Could not find default export in ${customCodecPath}`);
+      }
+
+      const customCodecs = module.default(E);
+      return E.right(customCodecs);
+    }
+
+    return E.right({});
+  }
 }

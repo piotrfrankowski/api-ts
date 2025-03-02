@@ -1,10 +1,17 @@
-import test from 'ava';
+import test from 'node:test';
+import { strict as assert } from 'node:assert';
 
 import * as t from 'io-ts';
 import express from 'express';
 import supertest from 'supertest';
 
-import { ApiSpec, apiSpec, httpRequest, httpRoute, optional } from '@api-ts/io-ts-http';
+import {
+  type ApiSpec,
+  apiSpec,
+  httpRequest,
+  httpRoute,
+  optional,
+} from '@api-ts/io-ts-http';
 import { buildApiClient, supertestRequestFactory } from '@api-ts/superagent-wrapper';
 
 import { createServer, middlewareFn, routeHandler } from '../src';
@@ -99,9 +106,9 @@ const GetHelloWorld = async (params: { id: string }) =>
   ({
     type: 'ok',
     payload: params,
-  } as const);
+  }) as const;
 
-test('should offer a delightful developer experience', async (t) => {
+test('should offer a delightful developer experience', async () => {
   const app = createServer(ApiSpec, (app: express.Application) => {
     // Configure app-level middleware
     app.use(express.json());
@@ -128,10 +135,10 @@ test('should offer a delightful developer experience', async (t) => {
     .decodeExpecting(200)
     .then((res) => res.body);
 
-  t.like(response, { message: "Who's there?" });
+  assert.equal(response.message, "Who's there?");
 });
 
-test('should handle io-ts-http formatted path parameters', async (t) => {
+test('should handle io-ts-http formatted path parameters', async () => {
   const app = createServer(ApiSpec, (app: express.Application) => {
     app.use(express.json());
     app.use(appMiddleware);
@@ -151,10 +158,10 @@ test('should handle io-ts-http formatted path parameters', async (t) => {
     .decodeExpecting(200)
     .then((res) => res.body);
 
-  t.like(response, { id: '1337' });
+  assert.equal(response.id, '1337');
 });
 
-test('should invoke app-level middleware', async (t) => {
+test('should invoke app-level middleware', async () => {
   const app = createServer(ApiSpec, (app: express.Application) => {
     // Configure app-level middleware
     app.use(express.json());
@@ -175,10 +182,11 @@ test('should invoke app-level middleware', async (t) => {
     .decodeExpecting(200)
     .then((res) => res.body);
 
-  t.like(response, { message: "Who's there?", appMiddlewareRan: true });
+  assert.equal(response.message, "Who's there?");
+  assert.equal(response.appMiddlewareRan, true);
 });
 
-test('should invoke route-level middleware', async (t) => {
+test('should invoke route-level middleware', async () => {
   const app = createServer(ApiSpec, (app: express.Application) => {
     // Configure app-level middleware
     app.use(express.json());
@@ -198,10 +206,11 @@ test('should invoke route-level middleware', async (t) => {
     .decodeExpecting(200)
     .then((res) => res.body);
 
-  t.like(response, { message: "Who's there?", routeMiddlewareRan: true });
+  assert.equal(response.message, "Who's there?");
+  assert.equal(response.routeMiddlewareRan, true);
 });
 
-test('should not add parameters from middleware unless routeHandler() is used', async (t) => {
+test('should not add parameters from middleware unless routeHandler() is used', async () => {
   const app = createServer(ApiSpec, (app: express.Application) => {
     // Configure app-level middleware
     app.use(express.json());
@@ -221,10 +230,11 @@ test('should not add parameters from middleware unless routeHandler() is used', 
     .decodeExpecting(200)
     .then((res) => res.body);
 
-  t.like(response, { message: "Who's there?", routeMiddlewareRan: false });
+  assert.equal(response.message, "Who's there?");
+  assert.equal(response.routeMiddlewareRan, false);
 });
 
-test('should infer status code from response type', async (t) => {
+test('should infer status code from response type', async () => {
   const app = createServer(ApiSpec, (app: express.Application) => {
     // Configure app-level middleware
     app.use(express.json());
@@ -244,10 +254,10 @@ test('should infer status code from response type', async (t) => {
     .decodeExpecting(400)
     .then((res) => res.body);
 
-  t.like(response, { errors: 'Please do not tell me zero! I will now explode' });
+  assert.equal(response.errors, 'Please do not tell me zero! I will now explode');
 });
 
-test('should return a 400 when request fails to decode', async (t) => {
+test('should return a 400 when request fails to decode', async () => {
   const app = createServer(ApiSpec, (app: express.Application) => {
     // Configure app-level middleware
     app.use(express.json());
@@ -264,5 +274,5 @@ test('should return a 400 when request fails to decode', async (t) => {
     .set('Content-Type', 'application/json')
     .expect(400);
 
-  t.true(response.body.error.startsWith('Invalid value undefined supplied to'));
+  assert(response.body.error.startsWith('Invalid value undefined supplied to'));
 });

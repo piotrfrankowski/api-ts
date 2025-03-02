@@ -1,0 +1,76 @@
+---
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-ts:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version:
+          # Skip lts/-2 while it refers to Node.js 16, since this version
+          # ships with a segfault when collecting code coverage with
+          # Node.js's built-in test runner.
+          # - lts/-2
+          - lts/-1
+          - lts/*
+
+    name: Node.js ${{ matrix.node-version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: |
+          npm ci
+
+      - name: Compile TypeScript
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+  # Only run CI for GitHub Pages on Node.js 16 because docusaurus doesn't support
+  # earlier Node.js versions.
+  website:
+    runs-on: ubuntu-latest
+
+    name: GitHub Pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: lts/*
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: website
+
+      - name: Build Docusaurus static site files
+        run: npm run build
+        working-directory: website

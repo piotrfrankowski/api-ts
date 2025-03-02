@@ -1,6 +1,5 @@
+.pre-commit-config.yaml
 .direnv/
-.drone.yml
-.turbo/
 coverage/
 dist/
 node_modules/
